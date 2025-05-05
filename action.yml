@@ -1,0 +1,181 @@
+name: 'Publish to Maven Central'
+description: 'GitHub Action to publish artifacts to Maven Central using the Vanniktech Maven Publish Plugin'
+author: 'Mifos Initiative'
+branding:
+  icon: 'package'
+  color: 'green'
+
+inputs:
+  version:
+    description: 'Version to publish'
+    required: true
+  maven-central-username:
+    description: 'Maven Central username'
+    required: true
+  maven-central-password:
+    description: 'Maven Central password or token'
+    required: true
+  gpg-key-id:
+    description: 'GPG signing key ID'
+    required: true
+  gpg-key:
+    description: 'GPG signing key in ASCII-armored format'
+    required: true
+  gpg-passphrase:
+    description: 'GPG key passphrase'
+    required: true
+  github-token:
+    description: 'GitHub token for creating releases and deploying documentation'
+    required: true
+  java-version:
+    description: 'Java version to use'
+    required: false
+    default: '17'
+  java-distribution:
+    description: 'Java distribution to use'
+    required: false
+    default: 'zulu'
+  publish-dokka-docs:
+    description: 'Whether to publish Dokka documentation'
+    required: false
+    default: 'true'
+  create-github-release:
+    description: 'Whether to create a GitHub release'
+    required: false
+    default: 'true'
+  update-gradle-properties:
+    description: 'Whether to update version in gradle.properties'
+    required: false
+    default: 'true'
+  working-directory:
+    description: 'Directory containing the Gradle project'
+    required: false
+    default: '.'
+  gradle-publish-task:
+    description: 'Gradle task to execute for publishing'
+    required: false
+    default: 'publishAllPublicationsToMavenCentralRepository'
+  dokka-html-task:
+    description: 'Gradle task to generate documentation'
+    required: false
+    default: 'dokkaHtml'
+  docs-folder:
+    description: 'Folder containing the generated documentation'
+    required: false
+    default: 'build/dokka/html'
+  sonatype-host:
+    description: 'Sonatype host (DEFAULT, S01, or CENTRAL_PORTAL)'
+    required: false
+    default: 'CENTRAL_PORTAL'
+  automatic-release:
+    description: 'Whether to automatically release from staging'
+    required: false
+    default: 'true'
+
+runs:
+  using: 'composite'
+  steps:
+    - name: Checkout
+      uses: actions/checkout@v4
+      with:
+        fetch-depth: 0
+
+    - name: Set up JDK
+      uses: actions/setup-java@v4
+      with:
+        distribution: ${{ inputs.java-distribution }}
+        java-version: ${{ inputs.java-version }}
+
+    - name: Setup Gradle
+      uses: gradle/actions/setup-gradle@v4
+
+    - name: Grant execute permission for gradlew
+      shell: bash
+      run: chmod +x ${{ inputs.working-directory }}/gradlew
+
+    - name: Cache Gradle dependencies
+      uses: actions/cache@v3
+      with:
+        path: |
+          ~/.gradle/caches
+          ~/.gradle/wrapper
+        key: ${{ runner.os }}-gradle-${{ hashFiles('**/*.gradle*') }}-${{ hashFiles('**/gradle/wrapper/gradle-wrapper.properties') }}-${{ hashFiles('**/buildSrc/**/*.kt') }}
+        restore-keys: |
+          ${{ runner.os }}-gradle-
+
+    - name: Cache Kotlin Native dependencies
+      uses: actions/cache@v3
+      with:
+        path: |
+          ~/.konan/cache
+          ~/.konan/dependencies
+          ~/.konan/kotlin-native-*
+        key: ${{ runner.os }}-konan-${{ hashFiles('**/*.gradle*') }}
+        restore-keys: |
+          ${{ runner.os }}-konan-
+
+    - name: Configure Sonatype Host and Automatic Release
+      shell: bash
+      working-directory: ${{ inputs.working-directory }}
+      run: |
+        if [ ! -f gradle.properties ]; then
+          touch gradle.properties
+        fi
+        echo "SONATYPE_HOST=${{ inputs.sonatype-host }}" >> gradle.properties
+        echo "SONATYPE_AUTOMATIC_RELEASE=${{ inputs.automatic-release }}" >> gradle.properties
+        echo "VERSION_NAME=${{ inputs.version }}" >> gradle.properties
+
+    - name: Publish to Maven Central
+      shell: bash
+      working-directory: ${{ inputs.working-directory }}
+      env:
+        ORG_GRADLE_PROJECT_mavenCentralUsername: ${{ inputs.maven-central-username }}
+        ORG_GRADLE_PROJECT_mavenCentralPassword: ${{ inputs.maven-central-password }}
+        ORG_GRADLE_PROJECT_signingInMemoryKeyId: ${{ inputs.gpg-key-id }}
+        ORG_GRADLE_PROJECT_signingInMemoryKey: ${{ inputs.gpg-key }}
+        ORG_GRADLE_PROJECT_signingInMemoryKeyPassword: ${{ inputs.gpg-passphrase }}
+      run: ./gradlew ${{ inputs.gradle-publish-task }} --no-configuration-cache
+
+    - name: Generate Documentation
+      if: ${{ inputs.publish-dokka-docs == 'true' }}
+      shell: bash
+      working-directory: ${{ inputs.working-directory }}
+      run: ./gradlew ${{ inputs.dokka-html-task }}
+
+    - name: Deploy Documentation
+      if: ${{ inputs.publish-dokka-docs == 'true' }}
+      uses: JamesIves/github-pages-deploy-action@releases/v3
+      with:
+        GITHUB_TOKEN: ${{ inputs.github-token }}
+        BRANCH: gh-pages
+        FOLDER: ${{ inputs.working-directory }}/${{ inputs.docs-folder }}
+        SINGLE_COMMIT: true
+
+    - name: Create GitHub Release
+      if: ${{ inputs.create-github-release == 'true' }}
+      uses: softprops/action-gh-release@v2
+      with:
+        tag_name: v${{ inputs.version }}
+        name: v${{ inputs.version }}
+        generate_release_notes: true
+        draft: false
+        prerelease: false
+        token: ${{ inputs.github-token }}
+
+    - name: Update version in gradle.properties
+      if: ${{ inputs.update-gradle-properties == 'true' }}
+      shell: bash
+      working-directory: ${{ inputs.working-directory }}
+      run: |
+        if grep -q "^VERSION_NAME=" gradle.properties; then
+          sed -i 's/^VERSION_NAME=.*/VERSION_NAME=${{ inputs.version }}/' gradle.properties
+        else
+          echo "VERSION_NAME=${{ inputs.version }}" >> gradle.properties
+        fi
+
+    - name: Commit changes
+      if: ${{ inputs.update-gradle-properties == 'true' }}
+      uses: stefanzweifel/git-auto-commit-action@v5
+      with:
+        commit_message: Bump version to ${{ inputs.version }}
+        file_pattern: ${{ inputs.working-directory }}/gradle.properties
