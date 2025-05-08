@@ -47,10 +47,6 @@ inputs:
     description: 'Whether to update version in gradle.properties'
     required: false
     default: 'true'
-  working-directory:
-    description: 'Directory containing the Gradle project'
-    required: false
-    default: '.'
   gradle-publish-task:
     description: 'Gradle task to execute for publishing'
     required: false
@@ -91,7 +87,7 @@ runs:
 
     - name: Grant execute permission for gradlew
       shell: bash
-      run: chmod +x ${{ inputs.working-directory }}/gradlew
+      run: chmod +x gradlew
 
     - name: Cache Gradle dependencies
       uses: actions/cache@v4
@@ -99,9 +95,8 @@ runs:
         path: |
           ~/.gradle/caches
           ~/.gradle/wrapper
-        key: ${{ runner.os }}-gradle-${{ hashFiles('**/*.gradle*') }}-${{ hashFiles('**/gradle/wrapper/gradle-wrapper.properties') }}-${{ hashFiles('**/buildSrc/**/*.kt') }}
-        restore-keys: |
-          ${{ runner.os }}-gradle-
+        key: ${{ runner.os }}-gradle-
+        restore-keys: ${{ runner.os }}-gradle-
 
     - name: Cache Kotlin Native dependencies
       uses: actions/cache@v4
@@ -110,13 +105,11 @@ runs:
           ~/.konan/cache
           ~/.konan/dependencies
           ~/.konan/kotlin-native-*
-        key: ${{ runner.os }}-konan-${{ hashFiles('**/*.gradle*') }}
-        restore-keys: |
-          ${{ runner.os }}-konan-
+        key: ${{ runner.os }}-konan-
+        restore-keys: ${{ runner.os }}-konan-
 
     - name: Configure Sonatype Host and Automatic Release
       shell: bash
-      working-directory: ${{ inputs.working-directory }}
       run: |
         if [ ! -f gradle.properties ]; then
           touch gradle.properties
@@ -127,7 +120,6 @@ runs:
 
     - name: Publish to Maven Central
       shell: bash
-      working-directory: ${{ inputs.working-directory }}
       env:
         ORG_GRADLE_PROJECT_mavenCentralUsername: ${{ inputs.maven-central-username }}
         ORG_GRADLE_PROJECT_mavenCentralPassword: ${{ inputs.maven-central-password }}
@@ -140,7 +132,6 @@ runs:
     - name: Generate Documentation
       if: ${{ inputs.publish-dokka-docs == 'true' }}
       shell: bash
-      working-directory: ${{ inputs.working-directory }}
       run: ./gradlew ${{ inputs.dokka-html-task }}
 
     - name: Deploy Documentation
@@ -149,7 +140,7 @@ runs:
       with:
         GITHUB_TOKEN: ${{ inputs.github-token }}
         BRANCH: gh-pages
-        FOLDER: ${{ inputs.working-directory }}/${{ inputs.docs-folder }}
+        FOLDER: ${{ inputs.docs-folder }}
         SINGLE_COMMIT: true
 
     - name: Create GitHub Release
@@ -166,7 +157,6 @@ runs:
     - name: Update version in gradle.properties
       if: ${{ inputs.update-gradle-properties == 'true' }}
       shell: bash
-      working-directory: ${{ inputs.working-directory }}
       run: |
         if grep -q "^VERSION_NAME=" gradle.properties; then
           sed -i 's/^VERSION_NAME=.*/VERSION_NAME=${{ inputs.version }}/' gradle.properties
@@ -179,4 +169,4 @@ runs:
       uses: stefanzweifel/git-auto-commit-action@v5
       with:
         commit_message: Bump version to ${{ inputs.version }}
-        file_pattern: ${{ inputs.working-directory }}/gradle.properties
+        file_pattern: gradle.properties
