@@ -134,6 +134,7 @@ runs:
         ORG_GRADLE_PROJECT_signingInMemoryKeyId: ${{ inputs.gpg-key-id }}
         ORG_GRADLE_PROJECT_signingInMemoryKey: ${{ inputs.gpg-key }}
         ORG_GRADLE_PROJECT_signingInMemoryKeyPassword: ${{ inputs.gpg-passphrase }}
+        PACKAGE_VERSION: ${{ inputs.version }}
       run: ./gradlew ${{ inputs.gradle-publish-task }} --no-configuration-cache
 
     - name: Generate Documentation
