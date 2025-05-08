@@ -30,7 +30,7 @@ jobs:
         uses: actions/checkout@v4
         
       - name: Publish to Maven Central
-        uses: yourusername/maven-central-publish@v1
+        uses: openMF/mifos-x-actionhub-publish-library-kmp@v1.0.0
         with:
           version: ${{ github.event.inputs.version }}
           maven-central-username: ${{ secrets.MAVEN_CENTRAL_USERNAME }}
